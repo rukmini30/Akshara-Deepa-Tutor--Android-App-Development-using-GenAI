@@ -23,22 +23,52 @@ async function startServer() {
 
   // AI Tutor Endpoint
   app.post("/api/tutor/ask", async (req, res) => {
-    try {
+    const maxRetries = 2;
+    let attempt = 0;
+
+    const runChat = async () => {
       const { message, chatHistory } = req.body;
-      
       const chat = ai.chats.create({
-        model: "gemini-3-flash-preview",
+        model: "gemini-flash-latest",
         config: {
-          systemInstruction: "You are an AI tutor helping 10th grade (SSLC) students. Your name is Akshara-Deepa AI. Explain concepts clearly with simple examples. If the user asks about Science, Math, or Social Studies, provide deep insights. Keep responses student-friendly and encouraging.",
+          systemInstruction: `You are Akshara-Deepa AI, a brilliant personal tutor for 10th-grade (SSLC) students. 
+          Your mission is to make learning exciting, simple, and effective.
+          - Use clear, simple language with relatable real-life examples.
+          - If asked for a "study plan", create a structured, day-wise schedule for the requested topic.
+          - Incorporate encouraging gamified language (e.g., "Level up your math skills!", "You're on a streak!").
+          - If the user asks about Science, Math, or Social Studies, provide clear bullet points and visual descriptions.
+          - Be encouraging and supportive like a wise older sibling.`,
         },
         history: chatHistory || []
       });
 
       const result = await chat.sendMessage({ message });
-      res.json({ response: result.text });
-    } catch (error: any) {
-      console.error("AI Tutor Error:", error);
-      res.status(500).json({ error: "Failed to get response from AI tutor. Please check your internet connection." });
+      return result.text;
+    };
+
+    while (attempt <= maxRetries) {
+      try {
+        const responseText = await runChat();
+        return res.json({ response: responseText });
+      } catch (error: any) {
+        attempt++;
+        console.error(`AI Tutor Attempt ${attempt} failed:`, error);
+        
+        // If it's a 503 or 429, we might want to retry after a short delay
+        const isRetryable = error?.status === 503 || error?.status === 429 || error?.message?.includes("503") || error?.message?.includes("high demand");
+        
+        if (isRetryable && attempt <= maxRetries) {
+          console.log(`Retrying AI Tutor in ${attempt * 1000}ms...`);
+          await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+          continue;
+        }
+
+        res.status(500).json({ 
+          error: "The AI tutor is currently very busy helping other students. Please try again in a few moments.",
+          details: error?.message 
+        });
+        break;
+      }
     }
   });
 

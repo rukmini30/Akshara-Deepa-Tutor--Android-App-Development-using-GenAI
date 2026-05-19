@@ -1,6 +1,6 @@
 {
   "name": "Akshara-Deepa Tutor",
   "description": "An AI-assisted offline-first learning companion for 10th grade students. Includes syllabus tracking, quizzes, and an AI tutor.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
