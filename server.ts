@@ -72,6 +72,74 @@ async function startServer() {
     }
   });
 
+  // File Analysis and Question Extraction Endpoint
+  app.post("/api/tutor/analyze-file", async (req, res) => {
+    try {
+      const { fileName, fileContent, subjectId } = req.body;
+      
+      const prompt = `Analyze this study note/text document titled "${fileName}" for a 10th-grade (SSLC) ${subjectId} student.
+      Provide a highly professional summary (under 150 words, in elegant bullet points) of the topics covered, and extract exactly 3 unique multiple-choice questions (MCQs) in Hindi/English/Kannada academic standards.
+      
+      Your output must be structured strictly in the following JSON format:
+      {
+        "summary": "Full formatted summary here...",
+        "questions": [
+          {
+            "question": "Clear and relevant question text...",
+            "options": ["Option A", "Option B", "Option C", "Option D"],
+            "correctAnswer": 1
+          }
+        ]
+      }
+      
+      Important:
+      - correctAnswer is the 0-based index of the correct option.
+      - Ensure the level is optimal for 10th-grade board exams.
+      - The text document is:
+      ${fileContent}`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              summary: { type: "STRING" },
+              questions: {
+                type: "ARRAY",
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    question: { type: "STRING" },
+                    options: {
+                      type: "ARRAY",
+                      items: { type: "STRING" }
+                    },
+                    correctAnswer: { type: "INTEGER" }
+                  },
+                  required: ["question", "options", "correctAnswer"]
+                }
+              }
+            },
+            required: ["summary", "questions"]
+          }
+        }
+      });
+
+      const responseText = response.text || "{}";
+      const parsedData = JSON.parse(responseText.trim());
+      res.json(parsedData);
+    } catch (error: any) {
+      console.error("File Analysis Error:", error);
+      res.status(500).json({ 
+        error: "Failed to analyze study notes. Please check the content and try again.",
+        details: error?.message 
+      });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

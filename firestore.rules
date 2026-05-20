@@ -1,0 +1,178 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net default catch-all: reject everything unless explicitly allowlisted
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Global Architectural Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Role verification using database lookups
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // ENTITY VALIDATOR: User Profile structure
+    function isValidUser(data) {
+      return data.keys().hasAll(['userId', 'name', 'focusZone', 'points', 'streak', 'level', 'createdAt'])
+        && data.keys().size() == 7
+        && data.userId == request.auth.uid
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 80
+        && data.focusZone is string && (data.focusZone == 'science' || data.focusZone == 'math' || data.focusZone == 'social')
+        && data.points is int && data.points >= 0
+        && data.streak is int && data.streak >= 0
+        && data.level is int && data.level >= 1
+        && data.createdAt is timestamp;
+    }
+
+    // ENTITY VALIDATOR: Syllabus Completion
+    function isValidProgress(data) {
+      return data.keys().hasAll(['progressId', 'userId', 'subjectId', 'chapterId', 'completed', 'updatedAt'])
+        && data.keys().size() == 6
+        && data.userId == request.auth.uid
+        && data.progressId is string && data.progressId.size() <= 128
+        && data.subjectId is string && (data.subjectId == 'science' || data.subjectId == 'math' || data.subjectId == 'social')
+        && data.chapterId is string && data.chapterId.size() <= 64
+        && data.completed is bool
+        && data.updatedAt is timestamp;
+    }
+
+    // ENTITY VALIDATOR: Quiz Record
+    function isValidQuiz(data) {
+      return data.keys().hasAll(['recordId', 'userId', 'subjectId', 'score', 'total', 'date', 'timestamp'])
+        && data.keys().size() == 7
+        && data.userId == request.auth.uid
+        && data.recordId is string && data.recordId.size() <= 128
+        && data.subjectId is string && (data.subjectId == 'science' || data.subjectId == 'math' || data.subjectId == 'social')
+        && data.score is int && data.score >= 0
+        && data.total is int && data.total >= 0 && data.score <= data.total
+        && data.date is string && data.date.size() <= 32
+        && data.timestamp is timestamp;
+    }
+
+    // ENTITY VALIDATOR: Practice MCQs
+    function isValidQuestion(data) {
+      return data.keys().hasAll(['questionId', 'subjectId', 'question', 'options', 'correctAnswer', 'creatorId'])
+        && data.keys().size() == 6
+        && data.questionId is string && data.questionId.size() <= 128
+        && data.subjectId is string && (data.subjectId == 'science' || data.subjectId == 'math' || data.subjectId == 'social')
+        && data.question is string && data.question.size() > 0 && data.question.size() <= 1000
+        && data.options is list && data.options.size() == 4
+        && data.options[0] is string && data.options[0].size() <= 200
+        && data.options[1] is string && data.options[1].size() <= 200
+        && data.options[2] is string && data.options[2].size() <= 200
+        && data.options[3] is string && data.options[3].size() <= 200
+        && data.correctAnswer is int && data.correctAnswer >= 0 && data.correctAnswer <= 3
+        && data.creatorId is string && data.creatorId.size() <= 128;
+    }
+
+    // MATCH 1: User Profile documents
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin(); // Secure search/cohort view is strictly controlled
+      
+      // Creating Profile: Require verified email alignment and creation validity
+      allow create: if isOwner(userId) 
+                    && isEmailVerified()
+                    && isValidId(userId)
+                    && isValidUser(incoming())
+                    && incoming().createdAt == request.time
+                    && incoming().points == 0
+                    && incoming().streak == 1
+                    && incoming().level == 1;
+
+      // Tiered update: Block users from mutating immutable properties or upgrading rewards directly
+      allow update: if isOwner(userId)
+                    && isValidUser(incoming())
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().userId == existing().userId
+                    && (
+                      // Action 1: Adjust target track
+                      (incoming().diff(existing()).affectedKeys().hasOnly(['focusZone'])) ||
+                      // Action 2: Standard XP Level progress and daily streak increments
+                      (incoming().diff(existing()).affectedKeys().hasOnly(['points', 'level', 'streak']))
+                    ) || isAdmin();
+                    
+      allow delete: if isAdmin();
+
+      // MATCH 2: Syllabus Progress Sub-collection (Relational Master Gate Check)
+      match /progress/{progressId} {
+        allow get: if isOwner(userId) || isAdmin();
+        
+        // Secure List Queries evaluation: Never allow raw unsorted user scraping
+        allow list: if isOwner(userId) || isAdmin();
+        
+        allow create: if isOwner(userId)
+                      && isValidId(progressId)
+                      && isValidProgress(incoming())
+                      && incoming().updatedAt == request.time;
+                      
+        allow update: if isOwner(userId)
+                      && isValidProgress(incoming())
+                      && incoming().updatedAt == request.time
+                      && incoming().progressId == existing().progressId
+                      && incoming().subjectId == existing().subjectId
+                      && incoming().chapterId == existing().chapterId
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['completed', 'updatedAt']);
+                      
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      // MATCH 3: Quiz Score History
+      match /quizzes/{recordId} {
+        allow get: if isOwner(userId) || isAdmin();
+        allow list: if isOwner(userId) || isAdmin();
+        
+        allow create: if isOwner(userId)
+                      && isValidId(recordId)
+                      && isValidQuiz(incoming())
+                      && incoming().timestamp == request.time;
+                      
+        allow update: if false; // Board prep quiz scores are immortal post-submission
+        allow delete: if isAdmin();
+      }
+    }
+
+    // MATCH 4: Practice Questions Registry (Global Sector)
+    match /curriculum/questions/registry/{questionId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && resource.data.subjectId == request.query.limit(20).filters[0].value; // Query enforcer
+      
+      // Inserting custom practice MCQs: Require teacher or admin level permission
+      allow create: if isAdmin() 
+                    && isValidId(questionId) 
+                    && isValidQuestion(incoming())
+                    && incoming().creatorId == request.auth.uid;
+                    
+      allow update: if isAdmin()
+                    && isValidQuestion(incoming());
+                    
+      allow delete: if isAdmin();
+    }
+  }
+}

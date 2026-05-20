@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Details about the registered 10th grade student",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Unique Google system identification UID"
+        },
+        "name": {
+          "type": "string",
+          "description": "The student's display name used for leaderboards"
+        },
+        "focusZone": {
+          "type": "string",
+          "description": "The focus syllabus sector (science, math, social)"
+        },
+        "points": {
+          "type": "integer",
+          "description": "Earned experience points (XP)"
+        },
+        "streak": {
+          "type": "integer",
+          "description": "Syllabus login streak counter in days"
+        },
+        "level": {
+          "type": "integer",
+          "description": "Overall board-prep rank level"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the student profile was initialized"
+        }
+      },
+      "required": ["userId", "name", "focusZone", "points", "streak", "level", "createdAt"]
+    },
+    "SyllabusProgress": {
+      "title": "Syllabus Completion",
+      "description": "Completion states of curriculum chapters per subject",
+      "type": "object",
+      "properties": {
+        "progressId": {
+          "type": "string",
+          "description": "Unique record id prefix"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The owner student UID"
+        },
+        "subjectId": {
+          "type": "string",
+          "description": "science, math, or social"
+        },
+        "chapterId": {
+          "type": "string",
+          "description": "Identifier matching custom syllabus lists"
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Completion state"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Moment of state change"
+        }
+      },
+      "required": ["progressId", "userId", "subjectId", "chapterId", "completed", "updatedAt"]
+    },
+    "QuizRecord": {
+      "title": "Quiz Mock Result",
+      "description": "Historical logged board exam simulation scoreboards",
+      "type": "object",
+      "properties": {
+        "recordId": {
+          "type": "string",
+          "description": "Unique mock scorecard ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The student UID who sat the quiz"
+        },
+        "subjectId": {
+          "type": "string",
+          "description": "Evaluated subject"
+        },
+        "score": {
+          "type": "integer",
+          "description": "Number of correct solutions"
+        },
+        "total": {
+          "type": "integer",
+          "description": "Total formulas queried"
+        },
+        "date": {
+          "type": "string",
+          "description": "Display format date representation"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Relational query order value"
+        }
+      },
+      "required": ["recordId", "userId", "subjectId", "score", "total", "date", "timestamp"]
+    },
+    "CustomQuestion": {
+      "title": "Custom Practice MCQ",
+      "description": "Custom administrator injected or AI file-loaded formulas",
+      "type": "object",
+      "properties": {
+        "questionId": {
+          "type": "string",
+          "description": "Generated unique question reference string"
+        },
+        "subjectId": {
+          "type": "string",
+          "description": "Subject index"
+        },
+        "question": {
+          "type": "string",
+          "description": "Text statement"
+        },
+        "options": {
+          "type": "array",
+          "description": "Exactly 4 options"
+        },
+        "correctAnswer": {
+          "type": "integer",
+          "description": "0-3 choice index"
+        },
+        "creatorId": {
+          "type": "string",
+          "description": "UserId or system code representing creator source"
+        }
+      },
+      "required": ["questionId", "subjectId", "question", "options", "correctAnswer", "creatorId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles indexed by userId"
+    },
+    "/users/{userId}/progress/{progressId}": {
+      "schema": "SyllabusProgress",
+      "description": "Chapters cleared under specific student profiles"
+    },
+    "/users/{userId}/quizzes/{recordId}": {
+      "schema": "QuizRecord",
+      "description": "Historic score records of individual students"
+    },
+    "/curriculum/questions/registry/{questionId}": {
+      "schema": "CustomQuestion",
+      "description": "Global custom question lists"
+    }
+  }
+}
